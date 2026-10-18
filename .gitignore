@@ -1,0 +1,47 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local models and generated indexes
+.rag_index/
+.validation/
+models/
+.cache/
+hf_home/
+huggingface/
+*.safetensors
+*.pt
+*.pth
+*.onnx
+pytorch_model*.bin
+*.faiss
+*.sqlite
+*.sqlite3
+*.db
+
+# Local reports and temporary files
+*.log
+*.tmp
+*.temp
+
+# IDE and operating system files
+.idea/
+.vscode/
+.DS_Store
+
+# Build outputs
+build/
+dist/
