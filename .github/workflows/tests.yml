@@ -16,6 +16,7 @@ jobs:
       LLM_API_KEY: ""
       LLM_PROVIDER: "dashscope"
       HF_HUB_OFFLINE: "1"
+      NLTK_DATA: ${{ runner.temp }}/nltk_data
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -28,6 +29,11 @@ jobs:
 
       - name: Install core and test dependencies
         run: python -m pip install -e '.[test]'
+
+      - name: Prepare private bundled NLTK cache
+        run: |
+          python -c 'import os, shutil; from importlib.metadata import distribution; from pathlib import Path; source = Path(distribution("llama-index-core").locate_file("llama_index/core/_static/nltk_cache")); shutil.copytree(source, Path(os.environ["NLTK_DATA"]), dirs_exist_ok=True)'
+          chmod -R go-w "$NLTK_DATA"
 
       - name: Run offline tests
         run: python -m pytest -q
