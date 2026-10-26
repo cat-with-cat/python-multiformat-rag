@@ -16,7 +16,6 @@ jobs:
       LLM_API_KEY: ""
       LLM_PROVIDER: "dashscope"
       HF_HUB_OFFLINE: "1"
-      NLTK_DATA: ${{ runner.temp }}/nltk_data
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -32,6 +31,8 @@ jobs:
 
       - name: Prepare private bundled NLTK cache
         run: |
+          export NLTK_DATA="$RUNNER_TEMP/nltk_data"
+          echo "NLTK_DATA=$NLTK_DATA" >> "$GITHUB_ENV"
           python -c 'import os, shutil; from importlib.metadata import distribution; from pathlib import Path; source = Path(distribution("llama-index-core").locate_file("llama_index/core/_static/nltk_cache")); shutil.copytree(source, Path(os.environ["NLTK_DATA"]), dirs_exist_ok=True)'
           chmod -R go-w "$NLTK_DATA"
 
