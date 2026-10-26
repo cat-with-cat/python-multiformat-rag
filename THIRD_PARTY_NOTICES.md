@@ -7,6 +7,7 @@ versions and include any notices required by them.
 
 | Component | Purpose | License |
 |---|---|---|
+| HTTPX | OpenAI-compatible HTTPS client | BSD-3-Clause |
 | LlamaIndex Core and integrations | RAG index, splitting, DashScope and HuggingFace adapters | MIT |
 | pypdf | PDF text extraction | BSD-3-Clause |
 | python-pptx | PPTX parsing | MIT |

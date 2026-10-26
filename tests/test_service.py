@@ -75,6 +75,32 @@ def test_no_evidence_does_not_call_llm() -> None:
     assert llm.last_prompt == ""
 
 
+def test_empty_llm_answer_uses_no_evidence_fallback(tmp_path: Path) -> None:
+    document = Document(
+        text="A grounded source.",
+        metadata={
+            "source_file": "source.txt",
+            "file_type": "txt",
+            "source_id": "source-file",
+        },
+    )
+    index = PersistentRAGIndex.build(
+        split_documents([document], chunk_size=64, chunk_overlap=8),
+        persist_dir=tmp_path / "index",
+        embed_model=MockEmbedding(embed_dim=8),
+        embedding_model_name="mock-8",
+    )
+
+    result = RAGService(index).answer(
+        "question",
+        llm=StubLLM("   "),
+        top_k=1,
+        min_similarity=-1.0,
+    )
+
+    assert result.answer == NO_EVIDENCE_ANSWER
+
+
 def test_untrusted_document_cannot_close_prompt_boundaries(tmp_path: Path) -> None:
     document = Document(
         text=(
@@ -133,10 +159,18 @@ def test_ask_cli_reports_missing_key_before_model_or_index_loading(
     capsys,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "dashscope")
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
 
     exit_code = main(
-        ["ask", "question", "--persist-dir", str(tmp_path / "missing-index")]
+        [
+            "--env-file",
+            str(tmp_path / "missing.env"),
+            "ask",
+            "question",
+            "--persist-dir",
+            str(tmp_path / "missing-index"),
+        ]
     )
 
     assert exit_code == 2

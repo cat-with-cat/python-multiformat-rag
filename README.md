@@ -10,7 +10,7 @@
 - LlamaIndex `Document`、`SentenceSplitter`、`VectorStoreIndex`
 - HuggingFace Embedding，默认 `BAAI/bge-small-zh-v1.5`
 - LlamaIndex 本地 `SimpleVectorStore` 持久化
-- DashScope 兼容 LLM，默认 `qwen-turbo`
+- DashScope LLM，以及可配置 Base URL 的 OpenAI-compatible LLM（可接 OpenLux）
 - pypdf、python-pptx、Python 标准库 CSV
 - pytest 与 Mock Embedding/Mock LLM
 
@@ -94,9 +94,14 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DASHSCOPE_API_KEY` | 空 | 仅 `ask` 命令需要 |
+| `LLM_PROVIDER` | `dashscope` | `dashscope` 或 `openai_compatible` |
+| `LLM_BASE_URL` | `https://api.openlux.ai/v1` | OpenAI-compatible Base URL |
+| `LLM_API_KEY` | 空 | OpenAI-compatible provider 的本地密钥 |
+| `LLM_MODEL` | 空 | 可选模型覆盖；应填写账户实际可用的模型 ID |
+| `LLM_TIMEOUT_SECONDS` | `30` | OpenAI-compatible 请求超时秒数 |
+| `DASHSCOPE_API_KEY` | 空 | DashScope provider 的本地密钥 |
 | `RAG_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | HuggingFace 模型名或本地路径 |
-| `RAG_LLM_MODEL` | `qwen-turbo` | DashScope 模型名 |
+| `RAG_LLM_MODEL` | `qwen-turbo` | 向后兼容的默认模型名；`LLM_MODEL` 非空时优先 |
 | `RAG_INDEX_DIR` | `.rag_index` | 本地索引目录 |
 | `RAG_CHUNK_SIZE` | `512` | SentenceSplitter token 数 |
 | `RAG_CHUNK_OVERLAP` | `64` | 相邻分块重叠 token 数 |
@@ -145,7 +150,28 @@ multiformat-rag retrieve "产品支持哪些文档格式？" --json
 
 ### 检索增强问答
 
-`ask` 会调用真实 DashScope 接口，可能产生费用。未配置 `DASHSCOPE_API_KEY` 时程序会给出明确错误，不会自动调用其他服务。
+`ask` 会调用 `LLM_PROVIDER` 选择的真实接口，可能产生费用。默认仍使用
+DashScope；程序不会在 provider 之间自动回退。缺少对应 Key 时会在加载模型和索引
+之前给出安全错误。
+
+DashScope 配置：
+
+```dotenv
+LLM_PROVIDER=dashscope
+DASHSCOPE_API_KEY=在本地填写
+RAG_LLM_MODEL=qwen-turbo
+```
+
+OpenLux 使用 OpenAI-compatible Chat Completions。模型权限因账户而异，应先在
+OpenLux 控制台或通过认证后的 `GET /v1/models` 确认实际模型 ID，不要猜测：
+
+```dotenv
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://api.openlux.ai/v1
+LLM_API_KEY=在本地填写
+LLM_MODEL=账户实际可用的模型ID
+LLM_TIMEOUT_SECONDS=30
+```
 
 ```bash
 multiformat-rag ask "产品支持哪些文档格式？" \
@@ -218,11 +244,22 @@ LLM 请求，也没有验证账户权限、额度、真实回答质量或真实�
 后应使用非敏感合成文档分别测试有依据问题和无依据问题，再记录结果；不得把 Key
 或完整请求日志提交到仓库。
 
+### OpenLux 验证状态
+
+项目已实现并用本地 Mock HTTP 传输验证 OpenAI-compatible Chat Completions
+适配器，包括自定义 Base URL/模型、Bearer 认证、超时、鉴权失败、模型或端点不可用、
+限流、服务错误、畸形响应和空回答处理。2026-10-26 在明确授权后，使用
+`gemini-3.1-flash-lite`、既有真实 BGE 索引和四格式合成文档执行了 6 次 OpenLux
+真实请求；A–F 六个场景全部通过，覆盖多来源综合、无依据拒答、相似但无关内容、
+Prompt Injection 和引用映射。该结果仅代表这一次受控验证，不代表 DashScope 或
+未来路由结果。Key 未写入报告或仓库。详细状态见
+[docs/V0.2_REAL_LLM_VALIDATION.md](docs/V0.2_REAL_LLM_VALIDATION.md)。
+
 ### GitHub Actions
 
 `.github/workflows/tests.yml` 在 Ubuntu 和 Python 3.10 上仅安装核心依赖与测试依赖，
-设置 `HF_HUB_OFFLINE=1`，执行 Mock 测试。工作流不读取 DashScope Key、不安装
-本地 Embedding 可选依赖、不下载模型，也不调用收费接口。
+设置 `HF_HUB_OFFLINE=1`，并把两类 LLM Key 置空后执行 Mock 测试。工作流不安装
+本地 Embedding 可选依赖、不下载模型，也不调用任何收费接口。
 
 ## 项目限制
 
@@ -232,13 +269,15 @@ LLM 请求，也没有验证账户权限、额度、真实回答质量或真实�
 - 本地 SimpleVectorStore 适合演示和中小规模数据，不适合大规模并发服务。
 - 当前是单轮问答，不保存多轮会话记忆。
 - 默认阈值需要针对实际模型和文档集评估后调整。
-- 自动化测试不证明真实 DashScope 账户、网络或额度可用。
+- Mock 自动化测试不证明真实账户状态；V0.2 的单次 OpenLux 验证也不保证未来网络、
+  模型路由、权限、额度或输出保持不变。真实 DashScope 仍未验证。
 - 当前没有对 LLM 输出中的引用编号做二次事实校验；来源列表表示送入模型的上下文，
   不代表模型一定正确使用了每条来源。
 - Prompt 对检索文本和问题使用不可信输入声明与标签转义，可降低直接提示注入风险，
   但任何基于提示词的防护都不能彻底消除间接提示注入。不要索引不可信的机密文档。
-- 调用 DashScope 时，检索到的文本会发送给第三方服务。文件名、页码等来源元数据
-  也会进入 Prompt；涉及隐私、商业秘密或受限材料时应停止使用或先做脱敏。
+- 调用 DashScope 或 OpenAI-compatible provider 时，检索到的文本会发送给对应
+  第三方服务。文件名、页码等来源元数据也会进入 Prompt；涉及隐私、商业秘密或
+  受限材料时应停止使用或先做脱敏。
 
 ## 安全与公开发布
 

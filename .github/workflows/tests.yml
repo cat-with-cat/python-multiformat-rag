@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 10
     env:
       DASHSCOPE_API_KEY: ""
+      LLM_API_KEY: ""
+      LLM_PROVIDER: "dashscope"
       HF_HUB_OFFLINE: "1"
     steps:
       - name: Check out source

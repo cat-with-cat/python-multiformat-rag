@@ -11,7 +11,7 @@ from multiformat_rag.chunking import split_documents
 from multiformat_rag.config import AppConfig
 from multiformat_rag.exceptions import RAGError
 from multiformat_rag.indexing import PersistentRAGIndex, SearchResult
-from multiformat_rag.llm import DashScopeLLMClient
+from multiformat_rag.llm import create_llm_client
 from multiformat_rag.loaders import MultiFormatDocumentLoader
 from multiformat_rag.preprocessing import clean_documents
 from multiformat_rag.service import RAGService
@@ -157,13 +157,9 @@ def _run_retrieve(args, config: AppConfig) -> int:
 
 
 def _run_ask(args, config: AppConfig) -> int:
-    api_key = config.require_dashscope_api_key()
+    llm = create_llm_client(config, model_name=args.llm_model)
     index = _load_index(args, config)
     service = RAGService(index)
-    llm = DashScopeLLMClient(
-        model_name=args.llm_model or config.llm_model,
-        api_key=api_key,
-    )
     result = service.answer(
         args.question,
         llm=llm,
