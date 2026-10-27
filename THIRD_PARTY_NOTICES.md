@@ -9,6 +9,8 @@ versions and include any notices required by them.
 |---|---|---|
 | HTTPX | OpenAI-compatible HTTPS client | BSD-3-Clause |
 | LlamaIndex Core and integrations | RAG index, splitting, DashScope and HuggingFace adapters | MIT |
+| LangChain Core | optional Tool, prompt, and Runnable abstractions | MIT |
+| LangSmith client | transitive dependency of LangChain Core; no tracing service is configured or required | MIT |
 | pypdf | PDF text extraction | BSD-3-Clause |
 | python-pptx | PPTX parsing | MIT |
 | python-dotenv | local environment configuration | BSD-3-Clause |
