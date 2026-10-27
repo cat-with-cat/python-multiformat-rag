@@ -1,6 +1,6 @@
 # Python Multi-format Document RAG
 
-一个面向学习、校招面试讲解和 GitHub 展示的多格式文档检索增强问答项目。项目使用统一接口读取 TXT、CSV、PDF、PPTX，保留页码、幻灯片号、CSV 行号与分块编号，并在语义检索和 LLM 回答中返回可追溯来源。
+一个面向学习、校招面试讲解和 GitHub 展示的多格式文档检索增强问答项目。项目使用统一接口读取 TXT、CSV、PDF、PPTX，保留页码、幻灯片号、CSV 行号与分块编号，并在语义检索和 LLM 回答中返回可追溯来源。可选的 LangChain 集成层把既有检索能力暴露为结构化 Tool，并提供 ChatPromptTemplate 与 LCEL Runnable；它不替代 LlamaIndex 索引，也不是 Agent。
 
 本仓库为独立实现，不包含课程源码、品牌素材、个人数据或第三方测试文档。
 
@@ -11,6 +11,7 @@
 - HuggingFace Embedding，默认 `BAAI/bge-small-zh-v1.5`
 - LlamaIndex 本地 `SimpleVectorStore` 持久化
 - DashScope LLM，以及可配置 Base URL 的 OpenAI-compatible LLM（可接 OpenLux）
+- 可选 LangChain Core：`StructuredTool`、`ChatPromptTemplate`、Runnable / LCEL
 - pypdf、python-pptx、Python 标准库 CSV
 - pytest 与 Mock Embedding/Mock LLM
 
@@ -36,6 +37,14 @@ Top-K 检索 → 相似度阈值 → LLM 回答
         │
         ▼
 答案 + 文件名 / 页码 / 幻灯片号 / 行号 / 分块编号
+```
+
+V0.3 还提供一条不改变上述主链路的可选调用路径：
+
+```text
+用户问题 → LangChain StructuredTool → 既有 RAGService.retrieve()
+         → ChatPromptTemplate → LCEL → 既有 LLMClient.complete()
+         → 答案 + 实际送入模型的来源
 ```
 
 详细设计见 [docs/architecture.md](docs/architecture.md)。
@@ -76,6 +85,15 @@ python -m pip install -e '.[test]'
 python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -e '.[local-embedding,test]'
 ```
+
+仅使用 LangChain 工具化集成时安装可选 extra：
+
+```bash
+python -m pip install -e '.[langchain]'
+```
+
+`test` extra 已包含 `langchain-core`，便于运行完整离线测试。项目没有引入
+`langgraph`、`langchain-community` 或新的向量数据库。
 
 首次执行真实索引命令时，HuggingFace 可能需要从网络下载 Embedding 模型。测试套件使用 Mock Embedding，不下载模型，也不调用付费 API。
 
@@ -180,6 +198,40 @@ multiformat-rag ask "产品支持哪些文档格式？" \
 
 回答之后会列出来源文件、页码或幻灯片号、CSV 行号、分块编号和相似度。
 
+## 可选 LangChain 集成
+
+LangChain 层复用已经加载的 `RAGService`，不会重复创建 Embedding、索引或解析器：
+
+```python
+from multiformat_rag.langchain_integration import (
+    create_langchain_rag_chain,
+    create_search_knowledge_base_tool,
+)
+
+# service 是已经绑定 PersistentRAGIndex 的 RAGService。
+tool = create_search_knowledge_base_tool(
+    service,
+    top_k=5,
+    min_similarity=0.35,
+)
+search_output = tool.invoke({"query": "发布前需要完成什么？"})
+
+# llm 实现现有 LLMClient.complete(prompt: str) 接口，可使用 Mock 或已有 Provider。
+chain = create_langchain_rag_chain(service, llm=llm)
+answer_output = chain.invoke({"question": "发布前需要完成什么？"})
+```
+
+Tool 输出包含状态以及结构化 `results`，每条结果保留检索文本、相似度、来源编号，
+并在允许列表 `metadata` 中保留文件名、类型、`source_id`、`chunk_index` 和适用的
+页码、幻灯片号或 CSV 行号。
+无检索证据时 Runnable 会直接返回“未在文档中找到相关依据。”，不会调用 LLM。
+
+当前 `LLMClient` 是纯文本生成协议。虽然 `StructuredTool` 能生成标准输入 Schema，
+但 DashScope/OpenAI-compatible 适配器尚未实现 `bind_tools()` 或解析 OpenAI
+`tool_calls`，因此本项目当前属于 **LangChain Tool + Runnable**，不属于 Agent 或
+真实模型 Tool Calling。详细设计见
+[docs/V0.3_LANGCHAIN_INTEGRATION.md](docs/V0.3_LANGCHAIN_INTEGRATION.md)。
+
 ## 测试
 
 ```bash
@@ -196,6 +248,8 @@ python -m pytest
 - 检索来源追溯
 - 空文档过滤
 - Mock LLM 问答与无依据回退
+- LangChain Tool Schema、结构化检索、Prompt 和 LCEL Runnable
+- LangChain 层的无依据短路、上下文限制、异常处理与 Provider Mock 兼容
 - 显式覆盖建库不残留旧节点
 - 检索文档不能伪造 Prompt 结构标签
 
@@ -268,6 +322,7 @@ Prompt Injection 和引用映射。该结果仅代表这一次受控验证，不
 - CSV 将第一行视为表头，不适用于无表头文件。
 - 本地 SimpleVectorStore 适合演示和中小规模数据，不适合大规模并发服务。
 - 当前是单轮问答，不保存多轮会话记忆。
+- LangChain 层没有 Agent 循环、真实 Tool Calling 或 LangGraph 状态图；模型不会自主决定或执行工具。
 - 默认阈值需要针对实际模型和文档集评估后调整。
 - Mock 自动化测试不证明真实账户状态；V0.2 的单次 OpenLux 验证也不保证未来网络、
   模型路由、权限、额度或输出保持不变。真实 DashScope 仍未验证。
