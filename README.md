@@ -1,6 +1,6 @@
 # Python Multi-format Document RAG
 
-一个面向学习、校招面试讲解和 GitHub 展示的多格式文档检索增强问答项目。项目使用统一接口读取 TXT、CSV、PDF、PPTX，保留页码、幻灯片号、CSV 行号与分块编号，并在语义检索和 LLM 回答中返回可追溯来源。可选的 LangChain 集成层把既有检索能力暴露为结构化 Tool，并提供 ChatPromptTemplate 与 LCEL Runnable；它不替代 LlamaIndex 索引，也不是 Agent。
+一个面向学习、校招面试讲解和 GitHub 展示的多格式文档检索增强问答项目。项目使用统一接口读取 TXT、CSV、PDF、PPTX，保留页码、幻灯片号、CSV 行号与分块编号，并在语义检索和 LLM 回答中返回可追溯来源。V0.3 提供可选的 LangChain Tool 与 LCEL；V0.4.0 进一步提供基于真实 `tool_calls` 消息协议的有界 LangGraph Agent。两者都复用 LlamaIndex 索引，不重复解析或向量化文档。
 
 本仓库为独立实现，不包含课程源码、品牌素材、个人数据或第三方测试文档。
 
@@ -12,6 +12,7 @@
 - LlamaIndex 本地 `SimpleVectorStore` 持久化
 - DashScope LLM，以及可配置 Base URL 的 OpenAI-compatible LLM（可接 OpenLux）
 - 可选 LangChain Core：`StructuredTool`、`ChatPromptTemplate`、Runnable / LCEL
+- 可选 LangChain OpenAI 与 LangGraph：ChatModel `bind_tools()`、ToolMessage 和有界 Agent 状态图
 - pypdf、python-pptx、Python 标准库 CSV
 - pytest 与 Mock Embedding/Mock LLM
 
@@ -45,6 +46,16 @@ V0.3 还提供一条不改变上述主链路的可选调用路径：
 用户问题 → LangChain StructuredTool → 既有 RAGService.retrieve()
          → ChatPromptTemplate → LCEL → 既有 LLMClient.complete()
          → 答案 + 实际送入模型的来源
+```
+
+V0.4.0 增加另一条独立路径，原有 CLI 默认行为不变：
+
+```text
+用户问题 → ChatModel 判断是否产生 tool_calls
+         ├─ 无工具调用 → 直接回答普通问题
+         └─ 调用 search_knowledge_base
+              → RAGService.retrieve() → ToolMessage
+              → ChatModel 基于真实来源生成带引用回答
 ```
 
 详细设计见 [docs/architecture.md](docs/architecture.md)。
@@ -92,8 +103,14 @@ python -m pip install -e '.[local-embedding,test]'
 python -m pip install -e '.[langchain]'
 ```
 
-`test` extra 已包含 `langchain-core`，便于运行完整离线测试。项目没有引入
-`langgraph`、`langchain-community` 或新的向量数据库。
+使用 V0.4 Agent Python API 时安装：
+
+```bash
+python -m pip install -e '.[agent]'
+```
+
+`test` extra 已包含 `langchain-core`、`langchain-openai` 和 `langgraph`，便于运行
+完整离线测试。项目没有引入 `langchain-community` 或新的向量数据库。
 
 首次执行真实索引命令时，HuggingFace 可能需要从网络下载 Embedding 模型。测试套件使用 Mock Embedding，不下载模型，也不调用付费 API。
 
@@ -227,10 +244,38 @@ Tool 输出包含状态以及结构化 `results`，每条结果保留检索文�
 无检索证据时 Runnable 会直接返回“未在文档中找到相关依据。”，不会调用 LLM。
 
 当前 `LLMClient` 是纯文本生成协议。虽然 `StructuredTool` 能生成标准输入 Schema，
-但 DashScope/OpenAI-compatible 适配器尚未实现 `bind_tools()` 或解析 OpenAI
-`tool_calls`，因此本项目当前属于 **LangChain Tool + Runnable**，不属于 Agent 或
-真实模型 Tool Calling。详细设计见
+V0.3 路径仍属于 **LangChain Tool + Runnable**，不属于 Agent。详细设计见
 [docs/V0.3_LANGCHAIN_INTEGRATION.md](docs/V0.3_LANGCHAIN_INTEGRATION.md)。
+
+## 可选 V0.4 Agent API
+
+V0.4 Agent 不修改 `LLMClient.complete()`，而是为支持标准 OpenAI Tool Calling 的
+Provider 创建独立 `ChatOpenAI` ChatModel，并通过 `bind_tools()` 绑定现有
+`search_knowledge_base`。LangGraph 只执行模型真实返回的结构化 `tool_calls`；没有使用
+关键词或正则模拟工具决策。
+
+```python
+from multiformat_rag.agentic_rag import create_rag_agent
+from multiformat_rag.chat_model import create_agent_chat_model
+from multiformat_rag.config import AppConfig
+
+# service 是已经绑定 PersistentRAGIndex 的 RAGService。
+config = AppConfig.from_env()
+chat_model = create_agent_chat_model(config)
+agent = create_rag_agent(service, chat_model=chat_model)
+result = agent.invoke({"question": "文档中如何追踪检索来源？"})
+```
+
+Agent 仅允许知识库工具，关闭并行工具调用，最多执行两次检索；工具参数由 Pydantic
+校验，工具异常会脱敏，来源由程序统一编号并校验模型引用。文档内容只出现在
+`ToolMessage` 中，不会提升为 System Message。Agent 调用会显式关闭 LangSmith tracing，
+单条来源文本在发送给模型前限制为 8,000 字符，配置对象的 API Key 字段不会出现在
+`repr` 中。引用检查只保证编号来自实际检索结果，不代表已经完成回答事实一致性验证。
+除脚本模型和 HTTP MockTransport 离线验证外，已使用完全虚构文档对 OpenLux
+`gemini-3.1-flash-lite` 完成知识库检索、普通直答和无证据拒答三个真实场景；共 4 次
+生成请求，三个场景均通过。DashScope Tool Calling 未实现或验证，且该结果不代表已完成
+事实一致性评估。设计、费用和限制见
+[docs/V0.4_AGENTIC_RAG.md](docs/V0.4_AGENTIC_RAG.md)。
 
 ## 测试
 
@@ -250,6 +295,7 @@ python -m pytest
 - Mock LLM 问答与无依据回退
 - LangChain Tool Schema、结构化检索、Prompt 和 LCEL Runnable
 - LangChain 层的无依据短路、上下文限制、异常处理与 Provider Mock 兼容
+- LangGraph Agent 的真实消息控制流、ToolMessage 关联、工具上限和引用校验
 - 显式覆盖建库不残留旧节点
 - 检索文档不能伪造 Prompt 结构标签
 
@@ -311,7 +357,7 @@ Prompt Injection 和引用映射。该结果仅代表这一次受控验证，不
 
 ### GitHub Actions
 
-`.github/workflows/tests.yml` 在 Ubuntu 和 Python 3.10 上仅安装核心依赖与测试依赖，
+`.github/workflows/tests.yml` 在 Ubuntu 和 Python 3.10、3.11、3.12 上仅安装核心依赖与测试依赖，
 设置 `HF_HUB_OFFLINE=1`，并把两类 LLM Key 置空后执行 Mock 测试。工作流不安装
 本地 Embedding 可选依赖、不下载模型，也不调用任何收费接口。
 
@@ -322,14 +368,20 @@ Prompt Injection 和引用映射。该结果仅代表这一次受控验证，不
 - CSV 将第一行视为表头，不适用于无表头文件。
 - 本地 SimpleVectorStore 适合演示和中小规模数据，不适合大规模并发服务。
 - 当前是单轮问答，不保存多轮会话记忆。
-- LangChain 层没有 Agent 循环、真实 Tool Calling 或 LangGraph 状态图；模型不会自主决定或执行工具。
+- V0.4 Agent 目前只支持 `openai_compatible` ChatModel；现有 DashScope 适配器继续支持
+  V0.3 文本生成，但没有 Agent Tool Calling 适配层。
+- V0.4 已用当前 OpenLux 账户和 `gemini-3.1-flash-lite` 完成三个合成场景的真实 Tool
+  Calling 验证；该结论不覆盖其他账户、模型、网关路由、文档或未来输出。
+- Agent 是否调用工具由模型决定。系统提示要求文档问题必须检索，但模型仍可能错误跳过
+  检索并直接回答，调用方不能把“未调用工具”自动视为已有文档依据。
 - 默认阈值需要针对实际模型和文档集评估后调整。
 - Mock 自动化测试不证明真实账户状态；V0.2 的单次 OpenLux 验证也不保证未来网络、
   模型路由、权限、额度或输出保持不变。真实 DashScope 仍未验证。
-- 当前没有对 LLM 输出中的引用编号做二次事实校验；来源列表表示送入模型的上下文，
-  不代表模型一定正确使用了每条来源。
+- V0.3 LCEL 没有对模型引用进行二次校验；V0.4 Agent 会拦截不存在的来源编号，但仍不
+  等于对回答中的每项自然语言事实完成自动事实核验。
 - Prompt 对检索文本和问题使用不可信输入声明与标签转义，可降低直接提示注入风险，
-  但任何基于提示词的防护都不能彻底消除间接提示注入。不要索引不可信的机密文档。
+  但 V0.4 Agent 尚未进行真实模型 Prompt Injection 攻击验收，任何基于提示词的防护也
+  不能彻底消除间接提示注入。不要索引不可信的机密文档。
 - 调用 DashScope 或 OpenAI-compatible provider 时，检索到的文本会发送给对应
   第三方服务。文件名、页码等来源元数据也会进入 Prompt；涉及隐私、商业秘密或
   受限材料时应停止使用或先做脱敏。

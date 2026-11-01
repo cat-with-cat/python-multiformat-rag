@@ -11,10 +11,15 @@ jobs:
   pytest:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
     env:
       DASHSCOPE_API_KEY: ""
       LLM_API_KEY: ""
       LLM_PROVIDER: "dashscope"
+      PYTHON_DOTENV_DISABLED: "1"
       LANGSMITH_TRACING: "false"
       LANGCHAIN_TRACING_V2: "false"
       HF_HUB_OFFLINE: "1"
@@ -22,10 +27,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Python 3.10
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install core and test dependencies

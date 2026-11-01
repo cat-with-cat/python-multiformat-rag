@@ -10,6 +10,9 @@ versions and include any notices required by them.
 | HTTPX | OpenAI-compatible HTTPS client | BSD-3-Clause |
 | LlamaIndex Core and integrations | RAG index, splitting, DashScope and HuggingFace adapters | MIT |
 | LangChain Core | optional Tool, prompt, and Runnable abstractions | MIT |
+| LangChain OpenAI | optional OpenAI-compatible chat-model integration | MIT |
+| LangGraph | optional bounded Agent state-graph runtime | MIT |
+| OpenAI Python SDK | transitive transport used by LangChain OpenAI | Apache-2.0 |
 | LangSmith client | transitive dependency of LangChain Core; no tracing service is configured or required | MIT |
 | pypdf | PDF text extraction | BSD-3-Clause |
 | python-pptx | PPTX parsing | MIT |
