@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -45,14 +45,14 @@ class AppConfig:
     llm_provider: str = DEFAULT_LLM_PROVIDER
     llm_model: str = DEFAULT_LLM_MODEL
     llm_base_url: str = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-    llm_api_key: str | None = None
+    llm_api_key: str | None = field(default=None, repr=False)
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     index_dir: Path = Path(".rag_index")
     chunk_size: int = 512
     chunk_overlap: int = 64
     top_k: int = 5
     min_similarity: float = 0.35
-    dashscope_api_key: str | None = None
+    dashscope_api_key: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, env_file: Path | None = None) -> "AppConfig":

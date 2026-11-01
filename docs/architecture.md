@@ -13,6 +13,24 @@ The project keeps parsing, cleaning, chunking, indexing, retrieval, and LLM gene
 5. `PersistentRAGIndex.load` reloads the index with the same Embedding model.
 6. `RAGService` performs Top-K retrieval, applies a minimum cosine similarity, builds a grounded prompt, and returns both the answer and source chunks.
 
+## Optional orchestration layers
+
+V0.3 exposes `RAGService.retrieve()` as a LangChain `StructuredTool` and offers
+a deterministic LCEL path. V0.4 adds a separate ChatModel/LangGraph path. The
+new graph binds that same tool and executes it only when the model returns a
+native structured `tool_calls` entry; it does not infer tool use from keywords.
+
+```text
+AIMessage.tool_calls → validated StructuredTool input
+                     → RAGService.retrieve()
+                     → ToolMessage(tool_call_id=original ID)
+                     → AIMessage final answer
+```
+
+The graph keeps sources and the call counter in application state, allows at
+most two sequential knowledge-base calls, and validates final citation numbers.
+The existing text-completion providers, LCEL path, and CLI remain independent.
+
 The service treats both retrieved text and the user's question as untrusted
 input. Angle brackets are converted to full-width characters before prompt
 assembly so a document cannot forge the structural delimiter tags. This is a
